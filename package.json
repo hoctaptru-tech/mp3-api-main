@@ -27,6 +27,8 @@
   },
   "dependencies": {
     "axios": "^0.24.0",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "https-proxy-agent": "^7.0.2"
   }
 }
