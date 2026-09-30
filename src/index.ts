@@ -36,7 +36,9 @@ export class ZingMp3 {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://zingmp3.vn/',
-        'Cookie': 'zmp3_rqid=MHwyMDEuMTE2LjUyLjE1N3wxNzI3NzA1NjAw'
+        'Cookie': 'zmp3_rqid=MHwyMDEuMTE2LjUyLjE1N3wxNzI3NzA1NjAw',
+        'X-Forwarded-For': '113.161.68.1',
+        'Client-IP': '113.161.68.1'
       },
       timeout: 10000
     };
@@ -46,8 +48,19 @@ export class ZingMp3 {
       config.httpAgent = agent;
     }
 
-    const response = await axios.get(`https://zingmp3.vn${path}`, config);
-    return response.data;
+    try {
+      const response = await axios.get(`https://zingmp3.vn${path}`, config);
+      return response.data;
+    } catch (err: any) {
+      // Nếu dùng Proxy bị lỗi kết nối, thử request trực tiếp bằng Header Fake IP
+      if (agent) {
+        delete config.httpsAgent;
+        delete config.httpAgent;
+        const fallbackResponse = await axios.get(`https://zingmp3.vn${path}`, config);
+        return fallbackResponse.data;
+      }
+      throw err;
+    }
   }
 
   // --- GET SONG ---

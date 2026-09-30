@@ -7,7 +7,6 @@ const path = require('path');
 // Import module ZingMp3 từ thư mục dist
 const ZingPackage = require('./dist/index.js');
 
-// Hàm tự động trích xuất đúng Instance chứa các hàm của ZingMp3
 function getZingInstance(pkg) {
   if (!pkg) return null;
   if (typeof pkg.search === 'function') return pkg;
@@ -29,9 +28,6 @@ function getZingInstance(pkg) {
 
 const zingApi = getZingInstance(ZingPackage);
 
-// Log kiểm tra kiểu dữ liệu khi Server khởi chạy
-console.log('[DEBUG] Kiểu của zingApi.search:', typeof (zingApi ? zingApi.search : undefined));
-
 const app = express();
 const PORT = process.env.PORT || 5555;
 
@@ -42,31 +38,28 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let vnProxyAgent = null;
 
-// Tự động cào và xoay Proxy Việt Nam
 async function refreshVNProxy() {
   try {
-    const apiUrl = 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=VN&ssl=all&anonymity=all';
-    const response = await axios.get(apiUrl, { timeout: 5000 });
-    const proxyList = response.data.split('\r\n').filter(Boolean);
+    const apiUrl = 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000&country=VN&ssl=all&anonymity=all';
+    const response = await axios.get(apiUrl, { timeout: 4000 });
+    const proxyList = response.data.split('\r\n').map(p => p.trim()).filter(Boolean);
 
     if (proxyList.length > 0) {
       const activeProxy = `http://${proxyList[0]}`;
       console.log(`[Proxy VN] Đã kết nối Proxy VN: ${activeProxy}`);
       vnProxyAgent = new HttpsProxyAgent(activeProxy);
     } else {
-      console.log('[Proxy VN] Không tìm thấy Proxy free, sử dụng kết nối trực tiếp.');
+      console.log('[Proxy VN] Không có proxy khả dụng, sử dụng Fake IP Header.');
       vnProxyAgent = null;
     }
   } catch (error) {
-    console.error('[Proxy VN] Lỗi cào Proxy VN:', error.message);
+    console.log('[Proxy VN] Bỏ qua Proxy, sử dụng Fake IP Header trực tiếp.');
     vnProxyAgent = null;
   }
 }
 
 refreshVNProxy();
 setInterval(refreshVNProxy, 15 * 60 * 1000);
-
-// --- ENDPOINTS ---
 
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', proxyActive: !!vnProxyAgent });
