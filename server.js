@@ -1,182 +1,117 @@
 const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const path = require('path');
-const { ZingMp3 } = require('./dist');
+
+// Nhập module Zing MP3 API từ thư mục dist (hoặc src tùy dự án)
+const zingApi = require('./dist/index.js'); 
 
 const app = express();
 const PORT = process.env.PORT || 5555;
 
-app.use(express.json());
+app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// health
-app.get('/health', (_req, res) => {
-  res.json({ ok: true });
-});
+// Biến lưu trữ Agent Proxy VN
+let vnProxyAgent = null;
 
-// basic demos
-app.get('/api/top100', async (_req, res) => {
+// Hàm tự động cào Proxy Việt Nam tươi từ ProxyScrape API
+async function refreshVNProxy() {
   try {
-    const data = await ZingMp3.getTop100();
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
+    const apiUrl = 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=VN&ssl=all&anonymity=all';
+    const response = await axios.get(apiUrl, { timeout: 5000 });
+    const proxyList = response.data.split('\r\n').filter(Boolean);
 
-app.get('/api/home', async (_req, res) => {
-  try {
-    const data = await ZingMp3.getHome();
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-// full list according to README
-app.get('/api/song', async (req, res) => {
-  try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getSong(String(id));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-// redirect to stream URL for simple playback (avoid CORS)
-app.get('/api/song/stream', async (req, res) => {
-  try {
-    const { id, quality = '128' } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const response = await ZingMp3.getSong(String(id));
-    const url = response?.data?.[String(quality)];
-    if (!url || typeof url !== 'string') {
-      return res.status(404).json({ error: `Stream URL not found for quality ${quality}` });
+    if (proxyList.length > 0) {
+      const activeProxy = `http://${proxyList[0]}`;
+      console.log(`[Proxy VN] Đã tìm thấy Proxy VN mới: ${activeProxy}`);
+      vnProxyAgent = new HttpsProxyAgent(activeProxy);
+    } else {
+      console.log('[Proxy VN] Không tìm thấy Proxy VN free nào khả dụng, sử dụng kết nối trực tiếp.');
+      vnProxyAgent = null;
     }
-    res.redirect(url);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
+  } catch (error) {
+    console.error('[Proxy VN] Lỗi khi lấy danh sách Proxy VN:', error.message);
+    vnProxyAgent = null;
   }
+}
+
+// Gọi lấy Proxy VN ngay khi server khởi động
+refreshVNProxy();
+// Tự động làm mới Proxy mỗi 15 phút để tránh IP die
+setInterval(refreshVNProxy, 15 * 60 * 1000);
+
+// Endpoint kiểm tra trạng thái
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', proxyActive: !!vnProxyAgent });
 });
 
-app.get('/api/detail-playlist', async (req, res) => {
-  try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getDetailPlaylist(String(id));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/chart-home', async (_req, res) => {
-  try {
-    const data = await ZingMp3.getChartHome();
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/newrelease-chart', async (_req, res) => {
-  try {
-    const data = await ZingMp3.getNewReleaseChart();
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/info-song', async (req, res) => {
-  try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getInfoSong(String(id));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/artist', async (req, res) => {
-  try {
-    const { name } = req.query;
-    if (!name) return res.status(400).json({ error: 'Missing name' });
-    const data = await ZingMp3.getArtist(String(name));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/artist-songs', async (req, res) => {
-  try {
-    const { id, page = '1', count = '15' } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getListArtistSong(String(id), String(page), String(count));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
-app.get('/api/lyric', async (req, res) => {
-  try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getLyric(String(id));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
-  }
-});
-
+// Endpoint tìm kiếm bài hát
 app.get('/api/search', async (req, res) => {
   try {
-    const { q } = req.query;
-    if (!q) return res.status(400).json({ error: 'Missing q' });
-    const data = await ZingMp3.search(String(q));
+    const keyword = req.query.q;
+    if (!keyword) return res.status(400).json({ err: -1, msg: 'Thiếu từ khóa q' });
+    
+    // Gọi API qua Proxy nếu có
+    const data = await zingApi.search(keyword, vnProxyAgent);
     res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
+  } catch (error) {
+    res.status(500).json({ err: -1, msg: error.message });
   }
 });
 
-app.get('/api/list-mv', async (req, res) => {
+// Endpoint lấy link stream
+app.get('/api/song', async (req, res) => {
   try {
-    const { id, page = '1', count = '15' } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getListMV(String(id), String(page), String(count));
+    const songId = req.query.id;
+    if (!songId) return res.status(400).json({ err: -1, msg: 'Thiếu song ID' });
+
+    const data = await zingApi.getSong(songId, vnProxyAgent);
     res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
+  } catch (error) {
+    res.status(500).json({ err: -1, msg: error.message });
   }
 });
 
-app.get('/api/category-mv', async (req, res) => {
+// Endpoint redirect trực tiếp đến file mp3 chất lượng 128kbps
+app.get('/api/song/stream', async (req, res) => {
   try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getCategoryMV(String(id));
-    res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
+    const songId = req.query.id;
+    if (!songId) return res.status(400).json({ err: -1, msg: 'Thiếu song ID' });
+
+    const data = await zingApi.getSong(songId, vnProxyAgent);
+    if (data && data.data && data.data['128']) {
+      return res.redirect(data.data['128']);
+    }
+    res.status(404).json(data || { err: -1, msg: 'Không tìm thấy nguồn nhạc' });
+  } catch (error) {
+    res.status(500).json({ err: -1, msg: error.message });
   }
 });
 
-app.get('/api/video', async (req, res) => {
+// Endpoint thông tin chi tiết bài hát
+app.get('/api/info-song', async (req, res) => {
   try {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'Missing id' });
-    const data = await ZingMp3.getVideo(String(id));
+    const songId = req.query.id;
+    const data = await zingApi.getInfoSong(songId, vnProxyAgent);
     res.json(data);
-  } catch (e) {
-    res.status(e?.response?.status || 500).json({ error: e?.message || 'Internal Error' });
+  } catch (error) {
+    res.status(500).json({ err: -1, msg: error.message });
+  }
+});
+
+// Endpoint lời bài hát
+app.get('/api/lyric', async (req, res) => {
+  try {
+    const songId = req.query.id;
+    const data = await zingApi.getLyric(songId, vnProxyAgent);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ err: -1, msg: error.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server đang chạy trên cổng ${PORT}`);
 });
